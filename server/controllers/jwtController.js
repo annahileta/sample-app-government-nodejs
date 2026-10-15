@@ -61,7 +61,6 @@ const getUserInfo = async (req) => {
     const targetAccountId = process.env.targetAccountId;
     const baseUriSuffix = '/restapi';
     eSignApi.setOAuthBasePath(oAuthBasePath);
-    console.log("Seesion Access token", req.session.accessToken)
     const results = await eSignApi.getUserInfo(req.session.accessToken);
 
     let accountInfo;
@@ -74,7 +73,6 @@ const getUserInfo = async (req) => {
     if (typeof accountInfo === 'undefined') {
       throw new Error(`Target account ${targetAccountId} not found!`);
     }
-    console.log("accountInfo", accountInfo)
     req.session.accountId = accountInfo.accountId;
     req.session.basePath = accountInfo.baseUri + baseUriSuffix;
   } catch (error) {
@@ -84,10 +82,12 @@ const getUserInfo = async (req) => {
 
 const login = async (req, res, next) => {
   try {
+    await checkToken(req);
+    await getUserInfo(req);
     req.session.isLoggedIn = true;
-    try { await checkToken(req); await getUserInfo(req); } catch (e) { console.log(e) }
     res.status(200).send('Successfully logged in.');
   } catch (error) {
+    req.session.isLoggedIn = false;
     if (error.message === 'Consent required') {
       const consent_scopes = scopes + '%20impersonation';
       const consent_url = `${process.env.DS_OAUTH_SERVER}/oauth/auth?response_type=code&` +
@@ -95,19 +95,19 @@ const login = async (req, res, next) => {
         `redirect_uri=${process.env.REDIRECT_URI_HOME}`;
       res.status(210).send(consent_url);
     } else {
-      req.session.isLoggedIn = false;
       next(error);
     }
   }
 };
 
 const logout = (req, res) => {
-  try {
-    req.session = null;
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).send('Error logging out');
+    }
+    res.clearCookie('MyGovernmentApp');
     res.status(200).send('Success: you have logged out');
-  } catch (error) {
-    res.status(500).send("Error logging out");
-  }
+  });
 };
 
 const isLoggedIn = (req, res) => {
