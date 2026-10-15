@@ -25,7 +25,9 @@ const corsOptions = {
   credentials: true,
 };
 
-const app = express()
+const app = express();
+app.set('trust proxy', 1);
+app
   .use(helmet())
   .use(bodyParser.json())
   .use(
