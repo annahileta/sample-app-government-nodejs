@@ -2,8 +2,8 @@ require('dotenv').config({ path: `${process.env.PWD}/.env` });
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-const cookieParser = require('cookie-parser');
-const cookieSession = require('cookie-session');
+const session = require('express-session');
+const crypto = require('crypto');
 const bodyParser = require('body-parser');
 const helmet = require('helmet');
 const errorText = require('./assets/errorText.json').api;
@@ -19,31 +19,34 @@ const trafficRouter = require('./routes/trafficRouter');
 const maxSessionAge = 1000 * 60 * 60 * 24 * 1; // One day
 
 const corsOptions = {
-  origin: ['http://frontend:3000', 'http://localhost:3000', 'http://localhost:80', 'http://localhost', 'http://localhost:80'],
+  origin: process.env.NODE_ENV === 'production'
+    ? [process.env.CORS_ORIGIN || 'https://government.sampleapps.docusign.com']
+    : ['http://localhost:3000'],
   credentials: true,
 };
 
-const app = express()
+const app = express();
+app.set('trust proxy', 1);
+app
   .use(helmet())
   .use(bodyParser.json())
-  .use(cookieParser())
   .use(
-    cookieSession({
+    session({
       name: 'MyGovernmentApp',
-      maxAge: maxSessionAge,
-      keys: [process.env.SESSION_SECRET],
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
+      secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        maxAge: maxSessionAge,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+      },
     })
   );
 
 app.use(cors(corsOptions));
 
-app.use((req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  next();
-});
 
 
 app.get('/', (req, res) => {
@@ -51,16 +54,24 @@ app.get('/', (req, res) => {
   res.end();
 });
 
-app.get('/check-session', (req, res) => {
-  console.log('Session data:', req.session);
-  res.json(req.session);
-});
+if (process.env.NODE_ENV === 'development') {
+  app.get('/check-session', (req, res) => {
+    res.json({ isLoggedIn: req.session.isLoggedIn || false });
+  });
+}
+
+const requireAuth = (req, res, next) => {
+  if (!req.session || !req.session.isLoggedIn) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  next();
+};
 
 // Routing
 app.use('/auth', authRouter);
-app.use('/passportApplication', passportRouter);
-app.use('/loanApplication', loanRouter);
-app.use('/trafficTicket', trafficRouter);
+app.use('/passportApplication', requireAuth, passportRouter);
+app.use('/loanApplication', requireAuth, loanRouter);
+app.use('/trafficTicket', requireAuth, trafficRouter);
 
 // Error handler
 app.use((err, req, res, next) => {
