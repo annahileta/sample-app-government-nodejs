@@ -1,5 +1,5 @@
 # Use a Node.js base image
-FROM --platform=linux/amd64 node:20.14
+FROM --platform=linux/amd64 node:22
 
 # Set the working directory
 WORKDIR /app
